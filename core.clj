@@ -40,35 +40,29 @@
                     my-agent  ;; the agent     ;
                     old-stat  ;; old-state
                     new-stat ];; new-state
-                 ;; TODO  optionally pass these to the supplied `mission`?
-                 (if (->> tracked-agents-vec
-                          (some #(-> %
-                                     deref
-                                     (= ::stale))))
-                   (if (not= old-stat
-                             ::stale)
-                     (send myagent
-                           (fn dummy-func3
-                             [_]
-                             ::stale))
-                     ;; else - already `::stale` so it's propogated
-                     )
-                   ;; else - all inputs are updated - so re-eval
-                   (send myagent
-                         mission
-                         (->> tracked-agents-vec
-                              (mapv deref)))))]
+                 (let [dereffed (->> tracked-agents-vec
+                                     (mapv deref))]
+                   (if (->> dereffed
+                            (some #(= %
+                                      ::stale)))
+                     (if (not= old-stat
+                               ::stale)
+                       (send myagent
+                             (fn dummy-func3
+                               [_]
+                               ::stale))
+                       ;; else - already `::stale` so it's propogated!
+                       )
+                     ;; else - all inputs are fresh - so re-eval
+                     (apply send
+                            myagent
+                            (fn [state
+                                 & args]
+                              (apply mission
+                                     args))
+                            dereffed))))]
     (run! #(let [random-key (keyword (str (rand)))]
-             (do (println (str "ADDING.."
-                               "\nwatch func:\t"
-                               action
-                               "\nwith key:\t"
-                               random-key
-                               "\nto agent:\t"
-                               %
-                               "\nwho's value is:"
-                               (deref %)))
                  (add-watch %
                             random-key
-                            action)))
+                            action))
           tracked-agents-vec)))

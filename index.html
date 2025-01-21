@@ -298,13 +298,12 @@ We will calculate changes in a couple of the Earth&#8217;s orbital parameters an
 <div class="listingblock">
 <div class="content">
 <pre>(defn sum-of-freqs
-  [current-agent-state
-   [constant-factor
-    freq-factors
-    time-steps]]
+  [constant-factor
+   freq-factors
+   time-steps]
   (let [in-rads (-&gt;&gt; freq-factors
                      (mapv (fn [{:keys [amplitude
-                                        freq-arcsx
+                                        freq-arcs
                                         phase-deg]}]
                              {:amplitude amplitude
                               :freq--rad (radians (/ freq-arcs
@@ -319,7 +318,7 @@ We will calculate changes in a couple of the Earth&#8217;s orbital parameters an
                                                freq--rad
                                                phase-rad]}]
                                     (* amplitude
-                                       (cos (+ phase-rad
+                                       (clojure.math/cos (+ phase-rad
                                                (* time-step
                                                   freq--rad))))))
                             (reduce +))))
@@ -333,10 +332,9 @@ We will calculate changes in a couple of the Earth&#8217;s orbital parameters an
 <div class="listingblock">
 <div class="content">
 <pre>#_
-(calc-obliq-vals nil
-                 @eccen-median-deg
-                 @eccen-freqs
-                 @time-steps)</pre>
+(sum-of-freqs @eccen-median-deg
+              @eccen-freqs
+              @time-steps)</pre>
 </div>
 </div>
 <div class="paragraph">
@@ -378,37 +376,31 @@ When updating a base state to a new value we first propogate a <code>::stale</co
                     my-agent  ;; the agent     ;
                     old-stat  ;; old-state
                     new-stat ];; new-state
-                 ;; TODO  optionally pass these to the supplied `mission`?
-                 (if (-&gt;&gt; tracked-agents-vec
-                          (some #(-&gt; %
-                                     deref
-                                     (= ::stale))))
-                   (if (not= old-stat
-                             ::stale)
-                     (send myagent
-                           (fn dummy-func3
-                             [_]
-                             ::stale))
-                     ;; else - already `::stale` so it's propogated
-                     )
-                   ;; else - all inputs are updated - so re-eval
-                   (send myagent
-                         mission
-                         (-&gt;&gt; tracked-agents-vec
-                              (mapv deref)))))]
+                 (let [dereffed (-&gt;&gt; tracked-agents-vec
+                                     (mapv deref))]
+                   (if (-&gt;&gt; dereffed
+                            (some #(= %
+                                      ::stale)))
+                     (if (not= old-stat
+                               ::stale)
+                       (send myagent
+                             (fn dummy-func3
+                               [_]
+                               ::stale))
+                       ;; else - already `::stale` so it's propogated!
+                       )
+                     ;; else - all inputs are fresh - so re-eval
+                     (apply send
+                            myagent
+                            (fn [state
+                                 &amp; args]
+                              (apply mission
+                                     args))
+                            dereffed))))]
     (run! #(let [random-key (keyword (str (rand)))]
-             (do (println (str "ADDING.."
-                               "\nwatch func:\t"
-                               action
-                               "\nwith key:\t"
-                               random-key
-                               "\nto agent:\t"
-                               %
-                               "\nwho's value is:"
-                               (deref %)))
                  (add-watch %
                             random-key
-                            action)))
+                            action))
           tracked-agents-vec)))</pre>
 </div>
 </div>
@@ -433,9 +425,8 @@ When updating a base state to a new value we first propogate a <code>::stale</co
 <div class="listingblock">
 <div class="content">
 <pre>(defn draw-svg-line
-  [current-agent-state
-   [xy-pair-seq
-    svg-filename]]
+  [xy-pair-seq
+   svg-filename]
   (let [plot (-&gt; xy-pair-seq
                  quickthing/no-axis
                  (update :data
@@ -539,10 +530,9 @@ A new file will be created on disk leaving the old file behind.</p>
        time-steps]
       sum-of-freqs)
 #_
-(sum-of-freqs nil
-                 [@eccen-median-deg
-                  @eccen-freqs
-                  @time-steps])
+(sum-of-freqs @eccen-median-deg
+              @eccen-freqs
+              @time-steps)
 
 (def pr-eq-svg-filename
   (agent "pr-eq.svg"))
@@ -583,12 +573,10 @@ We make a composite plot that brings everything together</p>
 <pre>(def composite-filename
   (agent nil))
 
-(defn
-  two-line-plot
-  [current-state
-   [xy-pair-A-seq
-    xy-pair-B-seq
-    svg-filename]]
+(defn two-line-plot
+  [xy-pair-A-seq
+   xy-pair-B-seq
+   svg-filename]
   (let [plot (-&gt; xy-pair-A-seq
                  quickthing/no-axis
                  (update :data
@@ -616,7 +604,7 @@ We make a composite plot that brings everything together</p>
       two-line-plot)
 
 (assign composite-filename
-        "eccen-pre-eq-composite.svg")</pre>
+        "composite.svg")</pre>
 </div>
 </div>
 <div class="paragraph">
@@ -736,16 +724,58 @@ Maybe we should bump the number of terms.
 </div>
 </div>
 <div class="sect1">
-<h2 id="_extras">Extras</h2>
+<h2 id="_extrastodos">Extras/TODOs</h2>
 <div class="sectionbody">
 <div class="paragraph">
 <p>Some extras for seemless integration with Clojure code</p>
 </div>
+<div class="ulist">
+<div class="title">Outstanding issues:</div>
+<ul>
+<li>
+<p>You can attach several rules to an agent.. which doesn&#8217;t make much sense</p>
+</li>
+<li>
+<p>You attach a rule to an agent.. but it doesn&#8217;t auto fire to give you a valid value</p>
+</li>
+<li>
+<p>When you <code>deref</code> a value it can give you back a <code>::stale</code> .. which your code then needs to handle? Seems gross</p>
+</li>
+</ul>
+</div>
 <div class="sect2">
-<h3 id="_recall">Recall</h3>
+<h3 id="_agentfn">agentfn</h3>
+<div class="paragraph">
+<p>For a dependent state we typically want to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>create its agent</p>
+</li>
+<li>
+<p>bind its dependencies</p>
+</li>
+<li>
+<p>bind an update function</p>
+</li>
+<li>
+<p>run the function and get a valid state immediately</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>All in one step!</p>
+</div>
+<div class="paragraph">
+<p>This needs some kind of macro probably</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_recall">recall</h3>
 <div class="paragraph">
 <p>From the main thread we&#8217;d ideally want the <code>::stale</code> tags abstracted away.
-When we request to get a valuue,
+When we request to get a value,
 we don&#8217;t want to have to handle situations where the value is not available.</p>
 </div>
 <div class="paragraph">
@@ -772,32 +802,10 @@ we don&#8217;t want to have to handle situations where the value is not availabl
 </div>
 </div>
 <div class="paragraph">
-<p>If we call <code>recall</code> an agent we always get a non-stale value</p>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_agentfn">agentfn</h3>
-<div class="paragraph">
-<p>For a dependent state we typically want to:</p>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p>create its agent</p>
-</li>
-<li>
-<p>bind its dependencies</p>
-</li>
-<li>
-<p>bind an update function</p>
-</li>
-<li>
-<p>run the function and get a valid state immediately</p>
-</li>
-</ul>
-</div>
-<div class="paragraph">
-<p>All in one step!</p>
+<p>If we call <code>recall</code> an agent we always get a non-stale value.
+The only issue is this implementation spins..
+Needs some other mechanism for waiting for a non-stale value
+(more watches? But those need to be cleared once they&#8217;re used..)</p>
 </div>
 </div>
 </div>

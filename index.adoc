@@ -91,16 +91,14 @@ We then derive a state for the eccentricity at different time points
 
 Calculation takes our 3 agent values and generates a list. The function signature will be a bit unusual. The first argument will be clear later, but is typically unused. The second argument is the 3-arg list.
 
-
 ----
 (defn sum-of-freqs
-  [current-agent-state
-   [constant-factor
-    freq-factors
-    time-steps]]
+  [constant-factor
+   freq-factors
+   time-steps]
   (let [in-rads (->> freq-factors
                      (mapv (fn [{:keys [amplitude
-                                        freq-arcsx
+                                        freq-arcs
                                         phase-deg]}]
                              {:amplitude amplitude
                               :freq--rad (radians (/ freq-arcs
@@ -115,7 +113,7 @@ Calculation takes our 3 agent values and generates a list. The function signatur
                                                freq--rad
                                                phase-rad]}]
                                     (* amplitude
-                                       (cos (+ phase-rad
+                                       (clojure.math/cos (+ phase-rad
                                                (* time-step
                                                   freq--rad))))))
                             (reduce +))))
@@ -127,10 +125,9 @@ If we want to test the function we can manually run it on our main/REPL thread w
 
 ----
 #_
-(calc-obliq-vals nil
-                 @eccen-median-deg
-                 @eccen-freqs
-                 @time-steps)
+(sum-of-freqs @eccen-median-deg
+              @eccen-freqs
+              @time-steps)
 ----
 
 image:plot/eccen.svg[]
@@ -165,37 +162,31 @@ image:diag/eccen-recalc.svg[]
                     my-agent  ;; the agent     ;
                     old-stat  ;; old-state
                     new-stat ];; new-state
-                 ;; TODO  optionally pass these to the supplied `mission`?
-                 (if (->> tracked-agents-vec
-                          (some #(-> %
-                                     deref
-                                     (= ::stale))))
-                   (if (not= old-stat
-                             ::stale)
-                     (send myagent
-                           (fn dummy-func3
-                             [_]
-                             ::stale))
-                     ;; else - already `::stale` so it's propogated
-                     )
-                   ;; else - all inputs are updated - so re-eval
-                   (send myagent
-                         mission
-                         (->> tracked-agents-vec
-                              (mapv deref)))))]
+                 (let [dereffed (->> tracked-agents-vec
+                                     (mapv deref))]
+                   (if (->> dereffed
+                            (some #(= %
+                                      ::stale)))
+                     (if (not= old-stat
+                               ::stale)
+                       (send myagent
+                             (fn dummy-func3
+                               [_]
+                               ::stale))
+                       ;; else - already `::stale` so it's propogated!
+                       )
+                     ;; else - all inputs are fresh - so re-eval
+                     (apply send
+                            myagent
+                            (fn [state
+                                 & args]
+                              (apply mission
+                                     args))
+                            dereffed))))]
     (run! #(let [random-key (keyword (str (rand)))]
-             (do (println (str "ADDING.."
-                               "\nwatch func:\t"
-                               action
-                               "\nwith key:\t"
-                               random-key
-                               "\nto agent:\t"
-                               %
-                               "\nwho's value is:"
-                               (deref %)))
                  (add-watch %
                             random-key
-                            action)))
+                            action))
           tracked-agents-vec)))
 ----
 
@@ -215,12 +206,10 @@ We just need to create a new agent and make it watch the dependencies and give i
 
 Lets go one more step removed, add an `svg` plot (which will write out to file).
 
-
 ----
 (defn draw-svg-line
-  [current-agent-state
-   [xy-pair-seq
-    svg-filename]]
+  [xy-pair-seq
+   svg-filename]
   (let [plot (-> xy-pair-seq
                  quickthing/no-axis
                  (update :data
@@ -306,10 +295,9 @@ Again, this is described as a sum of sinusoids, and is provided by Andre Berger.
        time-steps]
       sum-of-freqs)
 #_
-(sum-of-freqs nil
-                 [@eccen-median-deg
-                  @eccen-freqs
-                  @time-steps])
+(sum-of-freqs @eccen-median-deg
+              @eccen-freqs
+              @time-steps)
 
 (def pr-eq-svg-filename
   (agent "pr-eq.svg"))
@@ -344,12 +332,10 @@ We make a composite plot that brings everything together
 (def composite-filename
   (agent nil))
 
-(defn
-  two-line-plot
-  [current-state
-   [xy-pair-A-seq
-    xy-pair-B-seq
-    svg-filename]]
+(defn two-line-plot
+  [xy-pair-A-seq
+   xy-pair-B-seq
+   svg-filename]
   (let [plot (-> xy-pair-A-seq
                  quickthing/no-axis
                  (update :data
@@ -377,7 +363,7 @@ We make a composite plot that brings everything together
       two-line-plot)
 
 (assign composite-filename
-        "eccen-pre-eq-composite.svg")
+        "composite.svg")
 ----
 
 image:plot/eccen-pre-eq-composite.svg[]
@@ -456,7 +442,6 @@ Maybe we should bump the number of terms.
 
 Oh but we suddenly realize that we want to save that to another file! So that we can compare the before and after, so while that's computing you quickly type into the REPL
 
-
 ----
 (assign composite-filename
         "composite-high-precission.svg"))
@@ -464,20 +449,38 @@ Oh but we suddenly realize that we want to save that to another file! So that we
 
 image:plot/eccen-pre-eq-composite-more-terms.svg[]
 
-Depending on how punched in the file rename you will end up in one of several scenarios:
+Depending on how fast you punched in the file rename you will end up in one of several scenarios:
 
-- Rename while eccentricity values were being computed -> When the `composite-plot` agent works it seemlessly sees the new name
-- Rename while `composite-plot` agent is working -> the change main thread tries to propogate a `stale` and hangs waiting for the plotting to finish. Then the renaming occurs and the plotting reruns.
+- Rename while eccentricity values were being computed -> When the `composite-plot` agent runs it's update it seemlessly sees the new name
+- Rename while `composite-plot` agent is working -> the main thread tries to propogate a `stale` and hangs waiting for the plotting to finish. Then the stale propogates, the renaming occurs and the plotting reruns.
 
 In either case you are left with a consistent state
 
 
-== Extras
+== Extras/TODOs
+
 Some extras for seemless integration with Clojure code
 
-=== Recall
+.Outstanding issues:
+* You can attach several rules to an agent.. which doesn't make much sense
+* You attach a rule to an agent.. but it doesn't auto fire to give you a valid value
+* When you `deref` a value it can give you back a `::stale` .. which your code then needs to handle? Seems gross
+
+=== agentfn
+For a dependent state we typically want to:
+
+* create its agent
+* bind its dependencies
+* bind an update function
+* run the function and get a valid state immediately
+
+All in one step!
+
+This needs some kind of macro probably
+
+=== recall
 From the main thread we'd ideally want the `::stale` tags abstracted away.
-When we request to get a valuue,
+When we request to get a value,
 we don't want to have to handle situations where the value is not available.
 
 Generally the best and simplest course of action is to wait for the value to become available.
@@ -501,14 +504,7 @@ Generally the best and simplest course of action is to wait for the value to bec
       myagent-value)))
 ----
 
-If we call `recall` an agent we always get a non-stale value
-
-=== agentfn
-For a dependent state we typically want to:
-
-* create its agent
-* bind its dependencies
-* bind an update function
-* run the function and get a valid state immediately
-
-All in one step!
+If we call `recall` an agent we always get a non-stale value.
+The only issue is this implementation spins..
+Needs some other mechanism for waiting for a non-stale value
+(more watches? But those need to be cleared once they're used..)
