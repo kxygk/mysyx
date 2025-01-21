@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Asciidoctor 2.0.20">
+<title>Mysyx</title>
+<style>
+@import '../web/kxygk.css';
+
+html {
+margin: 0;
+overflow-x: hidden;
+}
+body {
+font: 14px/20px italic Times, sans-serif;
+margin-left: 0px;
+margin-right: 0px;
+margin-left: 5vw;
+margin-right: 5vw;}
+#table-of-contents {display: none} /* disable for now.. till I have a better plan */
+.listingblock,pre.src {
+margin-left:  -5vw;
+margin-right: -5vw;
+font-family: monospace;
+font-size: 100%;
+background: #FFFFEE;
+overflow: auto;
+position: static;
+border-top: 1px solid  #e5e5d6;
+border-bottom: 1px solid  #e5e5d6;
+}
+pre.src-org {
+color: red;
+background: #FFFFFF;
+}
+blockquote {
+width: 100%;
+padding-left: 0.5em;
+border-left: solid;
+border-left-width: 4px;
+border-left-color: grey;
+font: 14px/20px italic Times, serif;
+background-color: #eefaf6; /*#f1ffee;*/
+margin: 0;
+.org-center {
+text-align: center;}
+}
+svg { /* newer inline SVGs */
+width: 100vw;
+overflow: hidden;
+height: auto;
+margin-left: -5vw;
+margin-right: 0;
+}
+/*.org-svg {
+width: 100vw;
+display: block;
+margin-left: auto;
+margin-right: auto;
+}*/
+
+img {
+    display:flex;
+max-width: 100%;
+height: 100%;
+max-height: 33vh;
+vertical-align: middle;
+width: auto;
+margin: auto;
+}
+ul {
+list-style-type: circle;
+padding-left: 1.5em;
+border-left: solid;
+border-left-width: 1px;
+border-left-color: grey;}
+h1 {color: #596060;}
+h2 {
+    color: black;
+font-style: italic;
+    padding-top: 0.5em;
+    border-bottom: 4px solid  #aaaaaa;}
+h3 {color: black;
+border-bottom: 2px dotted  #aaaaaa;}
+b, i{
+font-family: serif ;}
+sup { /* fixes line spacing issues due to superscripts */
+font-size: 0.8em;
+line-height: 0;
+position: relative;
+vertical-align: baseline;
+top: -0.5em;
+}
+sub { /* if these are missing then lines with subscripts take up more space */
+font-size: 0.8em;
+line-height: 0;
+}
+.title {
+font-weight: bold;
+}
+dt {
+font-weight: bold;
+}
+td p, dd p, li p{
+    margin: 0;
+}
+ul, p{
+    margin-top: 0;
+}
+.sidebarblock{
+    background:#f3f3f2;
+}
+.float-group::before,.float-group::after{content:" ";display:table}
+.left{float:left!important}
+.right{float:right!important}
+.thumb,.th{line-height:0;display:inline-block;border:4px solid #fff;box-shadow:0 0 0 1px #ddd}
+.imageblock.left{margin:.25em .625em 1.25em 0}
+.imageblock.right{margin:.25em 0 1.25em .625em}
+.imageblock>.title{margin-bottom:0}
+.imageblock.thumb,.imageblock.th{border-width:6px}
+.imageblock.thumb>.title,.imageblock.th>.title{padding:0 .125em}
+.image.left,.image.right{margin-top:.25em;margin-bottom:.25em;display:inline-block;line-height:0}
+.image.left{margin-right:.625em}
+.image.right{margin-left:.625em}
+.scrollbox{
+    white-space: nowrap;
+    overflow-x: scroll;
+    scroll-snap-type: x mandatory;
+}
+.scrollbox img{
+    height:auto;
+    width:auto;
+    max-width: 70vw;
+    max-height: 60vh;
+    vertical-align: bottom;
+    scroll-snap-align: start;
+}
+video{
+    height:auto;
+    width:auto;
+    max-width: 30vw;
+    max-height: 30vh;
+}
+.content{
+    height: 100%;
+}
+.imageblock{
+    height: 100%;
+}
+.flexbox > .content{
+    display: flex;
+    justify-content: center;
+    height: 33vh;
+}
+
+</style>
+</head>
+<body class="article">
+<div id="header">
+<h1>Mysyx</h1>
+</div>
+<div id="content">
+<div id="preamble">
+<div class="sectionbody">
+<div class="paragraph">
+<p>A system for state managment though coordinated Clojure <code>agents</code></p>
+</div>
+<div class="paragraph">
+<p>Clojure Agents is one of the systems provided in Clojure for maintain state.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>They hold some value which can be accessed with a <code>deref</code> or <code>@</code></p>
+</li>
+<li>
+<p>You can <code>send</code> it a function and it will update itself on it&#8217;s own separate thread</p>
+</li>
+<li>
+<p>You can watch an Agent and run a function when the agent&#8217;s state changes</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Building on this I want to make a very basic state managment system that will react to changes to state and execute on parallel threads.</p>
+</div>
+<div class="paragraph">
+<p>I break state into two categories. Base states and Derived states. Base states are user provided, while derived states are ones calculated based on them. Give me a base radius value of 3.0 you can derive a circumference of 18.849.. (2*pi*3.0) and an area of 28.274.. (pi*3.0^2). Derived states can depend on other derived states. Given a length of 10.0 the volume of the cylinder is  282.74.. (28.274*10.0)</p>
+</div>
+<div class="paragraph">
+<p>Goals are:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>No glitches - ie. no seeing stale old state from the main thread</p>
+</li>
+<li>
+<p>When updating state in the background, calculate independent parts on separate threads</p>
+</li>
+<li>
+<p>When updating, be mostly lock-less, and allow access and updates to states that are unrelated</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Note that this all implies the existence of a "main thread" that always sees a consistent glitch free world.
+Typically this is the REPL thread.</p>
+</div>
+<div class="paragraph">
+<div class="title">Sidenote:</div>
+<p>For synchronizing access/updates from multiple threads you would need to maintain an access thread that would have locks and serialize all interactions.
+I&#8217;ve left this out of scope b.c it makes things messy</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_motivating_example">Motivating example:</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We will work through a "sciency" example that&#8217;s a bit contrived
+The goal is to emulate some workflow one would do in MATLAB/Excel/R and stress-test the reactivity of the system.
+We will calculate changes in a couple of the Earth&#8217;s orbital parameters and make some basic plots</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(use 'clojure.math)
+(add-libs {'generateme/fastmath {:mvn/version "3.0.0-alpha1"}
+           'kxygk/quickthing    {:local/root "../quickthing"}})
+(use '[fastmath.core :only (radians)])
+(require 'thi.ng.geom.viz.core)
+(require 'quickthing)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I will be using my own plotting wrapper for <code>thing/geom</code> and a unit conversion from <code>fastmath</code> ( <strong>degrees</strong> &#8594; <strong>radians</strong>)</p>
+</div>
+<div class="sect2">
+<h3 id="_eccentricity">Eccentricity</h3>
+<div class="paragraph">
+<p>The Earth also goes around in the sun in a slight oval, where the major axis is about 3% longer than the minor axis. When the Earth is farthest, on July 4th, it is at its <strong>apehelion</strong> (158M km) . When it is at its closest, January 3rd, it&#8217;s at its <strong>perhelion</strong> (153M km). When the Earth is closer to the sun, it&#8217;s whipping around the sun and traveling faster, hence the winter half of the year from the Spring equinox (March 20th) to Autumn equinox (Sept 22) is 7 days shorter than the summer half of the year</p>
+</div>
+<div class="paragraph">
+<p>The degree of this eccentricity will oscillate, from Earth&#8217;s orbit being almost circular, to being more elliptical. This can be described as a sum of sinusoids. A full table was put together Andre Berger in 1978:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://journals.ametsoc.org/view/journals/atsc/35/12/1520-0469_1978_035_2362_ltvodi_2_0_co_2.xml" class="bare">https://journals.ametsoc.org/view/journals/atsc/35/12/1520-0469_1978_035_2362_ltvodi_2_0_co_2.xml</a></p>
+</div>
+<div class="paragraph">
+<p>If we want to calculate the eccentricity for the past say 800,000 years, what do we need to do?</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Define a time step</p>
+</li>
+<li>
+<p>Define a sum of sinusoids</p>
+</li>
+<li>
+<p>Define a constant factor (eccentricity doesn&#8217;t go around zero like a sin/cos curve)</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(def time-steps
+  (agent (range 0
+                800000
+                1000)))
+
+(def eccen-median-deg
+  (agent 0.028707))
+
+(def eccen-freqs
+  (agent [{:amplitude 0.01102940
+           :freq-arcs 3.3138886
+           :phase-deg 165.16}
+          {:amplitude -0.00873296
+           :freq-arcs 13.650058
+           :phase-deg 279.68}
+          {:amplitude -0.00749255
+           :freq-arcs 10.511172
+           :phase-deg 114.51}]))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These are our initial base state. We define them as <code>agent</code> values for consistency later on (I think they could also safely be <code>atom</code> values)</p>
+</div>
+<div class="paragraph">
+<p>We then derive a state for the eccentricity at different time points</p>
+</div>
+<div class="paragraph">
+<p>Calculation takes our 3 agent values and generates a list. The function signature will be a bit unusual. The first argument will be clear later, but is typically unused. The second argument is the 3-arg list.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(defn sum-of-freqs
+  [current-agent-state
+   [constant-factor
+    freq-factors
+    time-steps]]
+  (let [in-rads (-&gt;&gt; freq-factors
+                     (mapv (fn [{:keys [amplitude
+                                        freq-arcsx
+                                        phase-deg]}]
+                             {:amplitude amplitude
+                              :freq--rad (radians (/ freq-arcs
+                                                     3600))
+                              :phase-rad (radians phase-deg)})))]
+    (mapv vector
+          time-steps
+          (-&gt;&gt; time-steps
+               (mapv (fn [time-step]
+                       (-&gt;&gt; in-rads
+                            (mapv (fn [{:keys [amplitude
+                                               freq--rad
+                                               phase-rad]}]
+                                    (* amplitude
+                                       (cos (+ phase-rad
+                                               (* time-step
+                                                  freq--rad))))))
+                            (reduce +))))
+               (mapv (partial +
+                              constant-factor))))))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If we want to test the function we can manually run it on our main/REPL thread with</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>#_
+(calc-obliq-vals nil
+                 @eccen-median-deg
+                 @eccen-freqs
+                 @time-steps)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/plot/eccen.svg" alt="eccen"></span></p>
+</div>
+<div class="paragraph">
+<p>If we change say the mean eccentricity <code>eccen-median-deg</code>, we want to have the <code>Eccentricity Values</code> to automatically go off in the background and update itself. With agents this means the <code>Eccentricity Values</code> agent needs to <code>watch</code> all his dependencies. If the dependencies have changed it needs to rerun it&#8217;s internal state calculation function and update itself.</p>
+</div>
+<div class="paragraph">
+<p>Here we run in to a lot of subtleties b/c the agent can take an arbitrary amount of time to update itself. It&#8217;s dependencies can also take an aritrary amount of time to update</p>
+</div>
+<div class="paragraph">
+<p>The core algorithm is to in effect create a fast locking mechanism.
+When updating a base state to a new value we first propogate a <code>::stale</code> state to all dependent agents.</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/diag/eccen-stale.svg" alt="eccen stale"></span></p>
+</div>
+<div class="paragraph">
+<p>Once the dependent states are marked <code>::stale</code> we assign the agent the new value (here <code>666</code>) and let dependent agents start recalculating in the background. As we will see, we can safely return to our main thread and interact with our states at this point.</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/diag/eccen-recalc.svg" alt="eccen recalc"></span></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(defn rule
+  "The rule updates one agent `myagent`
+  It tracks all the dependencies (agents)
+  If any of them turn `::stale` then something upstream is being updated
+  So we need to set `myagent` to be `::stale` too
+  TODO: Add a 4-arg overload with a `str` to print on trigger
+  TODO: Multiple rules can update one agent.
+  - When you update an agent's rule it should remove the previous one"
+  [myagent
+   tracked-agents-vec
+   mission] ;; TODO: Check non-zero amount of tracked agents
+  (let [action (fn [call-key  ;; unique key
+                    my-agent  ;; the agent     ;
+                    old-stat  ;; old-state
+                    new-stat ];; new-state
+                 ;; TODO  optionally pass these to the supplied `mission`?
+                 (if (-&gt;&gt; tracked-agents-vec
+                          (some #(-&gt; %
+                                     deref
+                                     (= ::stale))))
+                   (if (not= old-stat
+                             ::stale)
+                     (send myagent
+                           (fn dummy-func3
+                             [_]
+                             ::stale))
+                     ;; else - already `::stale` so it's propogated
+                     )
+                   ;; else - all inputs are updated - so re-eval
+                   (send myagent
+                         mission
+                         (-&gt;&gt; tracked-agents-vec
+                              (mapv deref)))))]
+    (run! #(let [random-key (keyword (str (rand)))]
+             (do (println (str "ADDING.."
+                               "\nwatch func:\t"
+                               action
+                               "\nwith key:\t"
+                               random-key
+                               "\nto agent:\t"
+                               %
+                               "\nwho's value is:"
+                               (deref %)))
+                 (add-watch %
+                            random-key
+                            action)))
+          tracked-agents-vec)))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We just need to create a new agent and make it watch the dependencies and give it the function to re-evaluate itself</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(def eccen-e
+  (agent nil))
+
+(rule eccen-e
+      [eccen-median-deg
+       eccen-freqs
+       time-steps]
+      sum-of-freqs)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Lets go one more step removed, add an <code>svg</code> plot (which will write out to file).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(defn draw-svg-line
+  [current-agent-state
+   [xy-pair-seq
+    svg-filename]]
+  (let [plot (-&gt; xy-pair-seq
+                 quickthing/no-axis
+                 (update :data
+                         #(into %
+                                (quickthing/dashed-line xy-pair-seq))))]
+    (let [plot-xml (-&gt; plot
+                       (thi.ng.geom.viz.core/svg-plot2d-cartesian)
+                       quickthing/svg-wrap
+                       quickthing/svg2xml)]
+      (spit svg-filename
+            plot-xml)
+      plot)))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For this we will need the previously calculated values as well as a filename, and then to hook everything up</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(def eccen-svg-filename
+  (agent "eccen.svg"))
+
+(def eccen-svg
+  (agent nil))
+
+(rule eccen-svg
+      [eccen-e
+       eccen-svg-filename]
+      draw-svg-line)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Which write out to <code>eccen.svg</code> a plot (axis ommited for simplicity)</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/plot/eccen.svg" alt="eccen"></span></p>
+</div>
+<div class="paragraph">
+<p>Now our dependency graph looks more complicated</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/diag/eccen-svg.svg" alt="eccen svg"></span></p>
+</div>
+<div class="quoteblock">
+<div class="title">Sideffects</div>
+<blockquote>
+<div class="paragraph">
+<p>If we were to rename the output filename to say <code>eccentricty.svg</code> to be more verbose.
+We could run <code>(assign eccen-svg-filename "eccentricity.svg")</code></p>
+</div>
+<div class="paragraph">
+<p>Since <code>draw-svg-line</code> spits to disk, it&#8217;s not a pure function.
+The system doesn&#8217;t do anything special to handle this.
+A new file will be created on disk leaving the old file behind.</p>
+</div>
+<div class="paragraph">
+<p>Putting sideeffects into your agents is probably something to be typically avoided</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_precession_of_the_equinox">Precession of the Equinox</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Lets make the state graph a bit more complicated and add another parameter.</p>
+</div>
+<div class="paragraph">
+<p>The perihelion/apehelion both currently happen in the northern hemisphere winter and summer respectively. Since the summer part is 7 days longer, the Northern Hemisphere effectively gets an extra 7 days of summer heat relative to the the winter hemisphere. The current near alignment between the tilt of the earth (obliquity) and the ellipse of the orbit is not static and changes over geologic time. This is known as the <strong>Precession of the Equinox</strong>. In several thousand years it&#8217;ll be the southern hemisphere that gets those extra 7 days.</p>
+</div>
+<div class="paragraph">
+<p>Not that is the Eccentricity happens to also decrease then this extra heating effect is minimized as the orbit is nearly circular and there is no big difference between perihelion and apehelion (and the 7 days will decrease to ~1 day)</p>
+</div>
+<div class="paragraph">
+<p>Again, this is described as a sum of sinusoids, and is provided by Andre Berger. So we can repeate the previous steps</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(def pr-eq-median-deg
+  (agent 0.1))
+
+(def pr-eq-freqs
+  (agent [{:amplitude 0.0186080
+           :freq-arcs 54.646484
+           :phase-deg 32.01}
+          {:amplitude 0.0162752
+           :freq-arcs 57.785370
+           :phase-deg 197.18}
+          {:amplitude -0.0130066
+           :freq-arcs 68.296539
+           :phase-deg 311.69}]))
+
+(def pr-eq-esinw
+  (agent nil))
+
+(rule pr-eq-esinw
+      [pr-eq-median-deg
+       pr-eq-freqs
+       time-steps]
+      sum-of-freqs)
+#_
+(sum-of-freqs nil
+                 [@eccen-median-deg
+                  @eccen-freqs
+                  @time-steps])
+
+(def pr-eq-svg-filename
+  (agent "pr-eq.svg"))
+
+(def pr-eq-svg
+  (agent nil))
+
+(rule pr-eq-svg
+      [pr-eq-esinw
+       pr-eq-svg-filename]
+      draw-svg-line)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Giving us a new plot</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/plot/pr-eq.svg" alt="pr eq"></span></p>
+</div>
+<div class="paragraph">
+<p>Now our state tree has grown, the only common piece is the time steps we reuse</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/diag/eccen-pre-eq.svg" alt="eccen pre eq"></span></p>
+</div>
+<div class="paragraph">
+<p>Both plots can be updated independently and the updates will happen in the background on separate threads!
+Mission accomplished.
+Automatic threading of unrelated work</p>
+</div>
+<div class="paragraph">
+<p>Now to complicate things as bit, lets plot the graphs together.
+This will illustrate how changes in eccentricity modulate the precession of the equinox.
+We make a composite plot that brings everything together</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(def composite-filename
+  (agent nil))
+
+(defn
+  two-line-plot
+  [current-state
+   [xy-pair-A-seq
+    xy-pair-B-seq
+    svg-filename]]
+  (let [plot (-&gt; xy-pair-A-seq
+                 quickthing/no-axis
+                 (update :data
+                         #(into %
+                                (quickthing/dashed-line xy-pair-A-seq)))
+                 (update :data
+                         #(into %
+                                (quickthing/dashed-line xy-pair-B-seq
+                                                        {:attribs {:stroke "red"}}))))]
+    (let [plot-xml (-&gt; plot
+                       (thi.ng.geom.viz.core/svg-plot2d-cartesian)
+                       quickthing/svg-wrap
+                       quickthing/svg2xml)]
+      (spit svg-filename
+            plot-xml)
+      plot)))
+
+(def composite-plot
+  (agent nil))
+
+(rule composite-plot
+      [pr-eq-esinw
+       eccen-e
+       composite-filename]
+      two-line-plot)
+
+(assign composite-filename
+        "eccen-pre-eq-composite.svg")</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/plot/eccen-pre-eq-composite.svg" alt="eccen pre eq composite"></span></p>
+</div>
+<div class="paragraph">
+<p>The state dependency graph now has a common root of <code>time-steps</code> and a common end point of <code>composite plot</code></p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/diag/eccen-pre-eq-composite.svg" alt="eccen pre eq composite"></span></p>
+</div>
+<div class="paragraph">
+<p>But note how the red eccentricity line didn&#8217;t quite wrap the grey one.
+The time axis is on the right and we can see things start to misalign</p>
+</div>
+<div class="paragraph">
+<p>Maybe our first attempt would be to bump up the precision. So we increase the number of time steps</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(assign time-steps
+        (range 0
+               800000
+               100))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>What happens? <code>time-steps</code> is made stale and all dependencies are marked stale</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/diag/eccen-pre-eq-composite-stale.svg" alt="eccen pre eq composite stale"></span></p>
+</div>
+<div class="paragraph">
+<p>And then everything,
+including the 3 plots,
+s recomputed of separate agent threads!</p>
+</div>
+<div class="paragraph">
+<p>The combined resulting combined plot is redrawn</p>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/plot/eccen-pre-eq-composite-high-prec.svg" alt="eccen pre eq composite high prec"></span></p>
+</div>
+<div class="paragraph">
+<p>The result looks.. exactly the same (but with a much larger file size)</p>
+</div>
+<div class="paragraph">
+<p>The actual reason is that we don&#8217;t have enough frequency factors.
+Maybe we should bump the number of terms.
+(we can see the <code>:amplitude</code> are actually  of the same order and so likely still relevant)</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(assign eccen-freqs
+        [{:amplitude 0.01102940
+          :freq-arcs 3.3138886
+          :phase-deg 165.16}
+         {:amplitude -0.00873296
+          :freq-arcs 13.650058
+          :phase-deg 279.68}
+         {:amplitude -0.00749255
+          :freq-arcs 10.511172
+          :phase-deg 114.51}
+         {:amplitude 0.00672394
+          :freq-arcs 13.013341
+          :phase-deg 291.57}
+         {:amplitude 0.00581229
+          :freq-arcs 9.874455
+          :phase-deg 126.41}
+         {:amplitude -0.00470066
+          :freq-arcs 0.636717
+          :phase-deg 348.10}])
+
+(assign pr-eq-freqs
+        [{:amplitude 0.0186080
+          :freq-arcs 54.646484
+          :phase-deg 32.01}
+         {:amplitude 0.0162752
+          :freq-arcs 57.785370
+          :phase-deg 197.18}
+         {:amplitude -0.0130066
+          :freq-arcs 68.296539
+          :phase-deg 311.69}
+         {:amplitude 0.0098883
+          :freq-arcs 67.659821
+          :phase-deg 323.59}])</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Oh but we suddenly realize that we want to save that to another file! So that we can compare the before and after, so while that&#8217;s computing you quickly type into the REPL</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(assign composite-filename
+        "composite-high-precission.svg"))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><span class="image"><img src="../web/img/plot/eccen-pre-eq-composite-more-terms.svg" alt="eccen pre eq composite more terms"></span></p>
+</div>
+<div class="paragraph">
+<p>Depending on how punched in the file rename you will end up in one of several scenarios:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Rename while eccentricity values were being computed &#8594; When the <code>composite-plot</code> agent works it seemlessly sees the new name</p>
+</li>
+<li>
+<p>Rename while <code>composite-plot</code> agent is working &#8594; the change main thread tries to propogate a <code>stale</code> and hangs waiting for the plotting to finish. Then the renaming occurs and the plotting reruns.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In either case you are left with a consistent state</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_extras">Extras</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Some extras for seemless integration with Clojure code</p>
+</div>
+<div class="sect2">
+<h3 id="_recall">Recall</h3>
+<div class="paragraph">
+<p>From the main thread we&#8217;d ideally want the <code>::stale</code> tags abstracted away.
+When we request to get a valuue,
+we don&#8217;t want to have to handle situations where the value is not available.</p>
+</div>
+<div class="paragraph">
+<p>Generally the best and simplest course of action is to wait for the value to become available.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>(defn recall
+  "WIP
+  Unclear how to hang and wait for a `::stale` to change.
+  Currently just spins the main thread...
+  which is not great
+  ..
+  You could `await` the main thread.
+  But you may end up waiting for unrelated work to finish.
+  Also not great"
+  [myagent]
+  (let [myagent-value (deref myagent)]
+    (if (= ::stale
+           myagent-value)
+      (do (await myagent)
+          (recur myagent))
+      myagent-value)))</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If we call <code>recall</code> an agent we always get a non-stale value</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_agentfn">agentfn</h3>
+<div class="paragraph">
+<p>For a dependent state we typically want to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>create its agent</p>
+</li>
+<li>
+<p>bind its dependencies</p>
+</li>
+<li>
+<p>bind an update function</p>
+</li>
+<li>
+<p>run the function and get a valid state immediately</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>All in one step!</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,514 @@
+:imagesdir: ../web/img/
+:!webfonts:
+:stylesheet: ../web/adoc.css
+:table-caption!:
+:reproducible:
+:nofooter:
+
+= Mysyx
+
+A system for state managment though coordinated Clojure `agents`
+
+Clojure Agents is one of the systems provided in Clojure for maintain state.
+
+* They hold some value which can be accessed with a `deref` or `@`
+* You can `send` it a function and it will update itself on it's own separate thread
+* You can watch an Agent and run a function when the agent's state changes
+
+Building on this I want to make a very basic state managment system that will react to changes to state and execute on parallel threads.
+
+I break state into two categories. Base states and Derived states. Base states are user provided, while derived states are ones calculated based on them. Give me a base radius value of 3.0 you can derive a circumference of 18.849.. (2*pi*3.0) and an area of 28.274.. (pi*3.0^2). Derived states can depend on other derived states. Given a length of 10.0 the volume of the cylinder is  282.74.. (28.274*10.0)
+
+Goals are:
+
+- No glitches - ie. no seeing stale old state from the main thread
+- When updating state in the background, calculate independent parts on separate threads
+- When updating, be mostly lock-less, and allow access and updates to states that are unrelated
+
+Note that this all implies the existence of a "main thread" that always sees a consistent glitch free world.
+Typically this is the REPL thread.
+
+.Sidenote:
+For synchronizing access/updates from multiple threads you would need to maintain an access thread that would have locks and serialize all interactions.
+I've left this out of scope b.c it makes things messy
+
+== Motivating example:
+
+We will work through a "sciency" example that's a bit contrived
+The goal is to emulate some workflow one would do in MATLAB/Excel/R and stress-test the reactivity of the system.
+We will calculate changes in a couple of the Earth's orbital parameters and make some basic plots
+
+----
+(use 'clojure.math)
+(add-libs {'generateme/fastmath {:mvn/version "3.0.0-alpha1"}
+           'kxygk/quickthing    {:local/root "../quickthing"}})
+(use '[fastmath.core :only (radians)])
+(require 'thi.ng.geom.viz.core)
+(require 'quickthing)
+----
+
+I will be using my own plotting wrapper for `thing/geom` and a unit conversion from `fastmath` ( *degrees* -> *radians*)
+
+=== Eccentricity
+The Earth also goes around in the sun in a slight oval, where the major axis is about 3% longer than the minor axis. When the Earth is farthest, on July 4th, it is at its *apehelion* (158M km) . When it is at its closest, January 3rd, it's at its *perhelion* (153M km). When the Earth is closer to the sun, it's whipping around the sun and traveling faster, hence the winter half of the year from the Spring equinox (March 20th) to Autumn equinox (Sept 22) is 7 days shorter than the summer half of the year
+
+The degree of this eccentricity will oscillate, from Earth's orbit being almost circular, to being more elliptical. This can be described as a sum of sinusoids. A full table was put together Andre Berger in 1978:
+
+https://journals.ametsoc.org/view/journals/atsc/35/12/1520-0469_1978_035_2362_ltvodi_2_0_co_2.xml
+
+If we want to calculate the eccentricity for the past say 800,000 years, what do we need to do?
+
+- Define a time step
+- Define a sum of sinusoids
+- Define a constant factor (eccentricity doesn't go around zero like a sin/cos curve)
+
+
+----
+(def time-steps
+  (agent (range 0
+                800000
+                1000)))
+
+(def eccen-median-deg
+  (agent 0.028707))
+
+(def eccen-freqs
+  (agent [{:amplitude 0.01102940
+           :freq-arcs 3.3138886
+           :phase-deg 165.16}
+          {:amplitude -0.00873296
+           :freq-arcs 13.650058
+           :phase-deg 279.68}
+          {:amplitude -0.00749255
+           :freq-arcs 10.511172
+           :phase-deg 114.51}]))
+----
+
+These are our initial base state. We define them as `agent` values for consistency later on (I think they could also safely be `atom` values)
+
+We then derive a state for the eccentricity at different time points
+
+
+Calculation takes our 3 agent values and generates a list. The function signature will be a bit unusual. The first argument will be clear later, but is typically unused. The second argument is the 3-arg list.
+
+
+----
+(defn sum-of-freqs
+  [current-agent-state
+   [constant-factor
+    freq-factors
+    time-steps]]
+  (let [in-rads (->> freq-factors
+                     (mapv (fn [{:keys [amplitude
+                                        freq-arcsx
+                                        phase-deg]}]
+                             {:amplitude amplitude
+                              :freq--rad (radians (/ freq-arcs
+                                                     3600))
+                              :phase-rad (radians phase-deg)})))]
+    (mapv vector
+          time-steps
+          (->> time-steps
+               (mapv (fn [time-step]
+                       (->> in-rads
+                            (mapv (fn [{:keys [amplitude
+                                               freq--rad
+                                               phase-rad]}]
+                                    (* amplitude
+                                       (cos (+ phase-rad
+                                               (* time-step
+                                                  freq--rad))))))
+                            (reduce +))))
+               (mapv (partial +
+                              constant-factor))))))
+----
+If we want to test the function we can manually run it on our main/REPL thread with
+
+
+----
+#_
+(calc-obliq-vals nil
+                 @eccen-median-deg
+                 @eccen-freqs
+                 @time-steps)
+----
+
+image:plot/eccen.svg[]
+
+If we change say the mean eccentricity `eccen-median-deg`, we want to have the `Eccentricity Values` to automatically go off in the background and update itself. With agents this means the `Eccentricity Values` agent needs to `watch` all his dependencies. If the dependencies have changed it needs to rerun it's internal state calculation function and update itself.
+
+Here we run in to a lot of subtleties b/c the agent can take an arbitrary amount of time to update itself. It's dependencies can also take an aritrary amount of time to update
+
+The core algorithm is to in effect create a fast locking mechanism.
+When updating a base state to a new value we first propogate a `::stale` state to all dependent agents.
+
+image:diag/eccen-stale.svg[]
+
+
+Once the dependent states are marked `::stale` we assign the agent the new value (here `666`) and let dependent agents start recalculating in the background. As we will see, we can safely return to our main thread and interact with our states at this point.
+
+image:diag/eccen-recalc.svg[]
+
+----
+(defn rule
+  "The rule updates one agent `myagent`
+  It tracks all the dependencies (agents)
+  If any of them turn `::stale` then something upstream is being updated
+  So we need to set `myagent` to be `::stale` too
+  TODO: Add a 4-arg overload with a `str` to print on trigger
+  TODO: Multiple rules can update one agent.
+  - When you update an agent's rule it should remove the previous one"
+  [myagent
+   tracked-agents-vec
+   mission] ;; TODO: Check non-zero amount of tracked agents
+  (let [action (fn [call-key  ;; unique key
+                    my-agent  ;; the agent     ;
+                    old-stat  ;; old-state
+                    new-stat ];; new-state
+                 ;; TODO  optionally pass these to the supplied `mission`?
+                 (if (->> tracked-agents-vec
+                          (some #(-> %
+                                     deref
+                                     (= ::stale))))
+                   (if (not= old-stat
+                             ::stale)
+                     (send myagent
+                           (fn dummy-func3
+                             [_]
+                             ::stale))
+                     ;; else - already `::stale` so it's propogated
+                     )
+                   ;; else - all inputs are updated - so re-eval
+                   (send myagent
+                         mission
+                         (->> tracked-agents-vec
+                              (mapv deref)))))]
+    (run! #(let [random-key (keyword (str (rand)))]
+             (do (println (str "ADDING.."
+                               "\nwatch func:\t"
+                               action
+                               "\nwith key:\t"
+                               random-key
+                               "\nto agent:\t"
+                               %
+                               "\nwho's value is:"
+                               (deref %)))
+                 (add-watch %
+                            random-key
+                            action)))
+          tracked-agents-vec)))
+----
+
+We just need to create a new agent and make it watch the dependencies and give it the function to re-evaluate itself
+
+
+----
+(def eccen-e
+  (agent nil))
+
+(rule eccen-e
+      [eccen-median-deg
+       eccen-freqs
+       time-steps]
+      sum-of-freqs)
+----
+
+Lets go one more step removed, add an `svg` plot (which will write out to file).
+
+
+----
+(defn draw-svg-line
+  [current-agent-state
+   [xy-pair-seq
+    svg-filename]]
+  (let [plot (-> xy-pair-seq
+                 quickthing/no-axis
+                 (update :data
+                         #(into %
+                                (quickthing/dashed-line xy-pair-seq))))]
+    (let [plot-xml (-> plot
+                       (thi.ng.geom.viz.core/svg-plot2d-cartesian)
+                       quickthing/svg-wrap
+                       quickthing/svg2xml)]
+      (spit svg-filename
+            plot-xml)
+      plot)))
+----
+
+For this we will need the previously calculated values as well as a filename, and then to hook everything up
+
+
+----
+(def eccen-svg-filename
+  (agent "eccen.svg"))
+
+(def eccen-svg
+  (agent nil))
+
+(rule eccen-svg
+      [eccen-e
+       eccen-svg-filename]
+      draw-svg-line)
+----
+Which write out to `eccen.svg` a plot (axis ommited for simplicity)
+
+image:plot/eccen.svg[]
+
+Now our dependency graph looks more complicated
+
+image:diag/eccen-svg.svg[]
+
+
+.Sideffects
+____
+If we were to rename the output filename to say `eccentricty.svg` to be more verbose.
+We could run `(assign eccen-svg-filename "eccentricity.svg")`
+
+Since `draw-svg-line` spits to disk, it's not a pure function.
+The system doesn't do anything special to handle this.
+A new file will be created on disk leaving the old file behind.
+
+Putting sideeffects into your agents is probably something to be typically avoided
+____
+
+== Precession of the Equinox
+
+Lets make the state graph a bit more complicated and add another parameter.
+
+The perihelion/apehelion both currently happen in the northern hemisphere winter and summer respectively. Since the summer part is 7 days longer, the Northern Hemisphere effectively gets an extra 7 days of summer heat relative to the the winter hemisphere. The current near alignment between the tilt of the earth (obliquity) and the ellipse of the orbit is not static and changes over geologic time. This is known as the *Precession of the Equinox*. In several thousand years it'll be the southern hemisphere that gets those extra 7 days.
+
+Not that is the Eccentricity happens to also decrease then this extra heating effect is minimized as the orbit is nearly circular and there is no big difference between perihelion and apehelion (and the 7 days will decrease to ~1 day)
+
+Again, this is described as a sum of sinusoids, and is provided by Andre Berger. So we can repeate the previous steps
+
+
+----
+(def pr-eq-median-deg
+  (agent 0.1))
+
+(def pr-eq-freqs
+  (agent [{:amplitude 0.0186080
+           :freq-arcs 54.646484
+           :phase-deg 32.01}
+          {:amplitude 0.0162752
+           :freq-arcs 57.785370
+           :phase-deg 197.18}
+          {:amplitude -0.0130066
+           :freq-arcs 68.296539
+           :phase-deg 311.69}]))
+
+(def pr-eq-esinw
+  (agent nil))
+
+(rule pr-eq-esinw
+      [pr-eq-median-deg
+       pr-eq-freqs
+       time-steps]
+      sum-of-freqs)
+#_
+(sum-of-freqs nil
+                 [@eccen-median-deg
+                  @eccen-freqs
+                  @time-steps])
+
+(def pr-eq-svg-filename
+  (agent "pr-eq.svg"))
+
+(def pr-eq-svg
+  (agent nil))
+
+(rule pr-eq-svg
+      [pr-eq-esinw
+       pr-eq-svg-filename]
+      draw-svg-line)
+----
+
+Giving us a new plot
+
+image:plot/pr-eq.svg[]
+
+Now our state tree has grown, the only common piece is the time steps we reuse
+
+image:diag/eccen-pre-eq.svg[]
+
+Both plots can be updated independently and the updates will happen in the background on separate threads!
+Mission accomplished.
+Automatic threading of unrelated work
+
+Now to complicate things as bit, lets plot the graphs together.
+This will illustrate how changes in eccentricity modulate the precession of the equinox.
+We make a composite plot that brings everything together
+
+
+----
+(def composite-filename
+  (agent nil))
+
+(defn
+  two-line-plot
+  [current-state
+   [xy-pair-A-seq
+    xy-pair-B-seq
+    svg-filename]]
+  (let [plot (-> xy-pair-A-seq
+                 quickthing/no-axis
+                 (update :data
+                         #(into %
+                                (quickthing/dashed-line xy-pair-A-seq)))
+                 (update :data
+                         #(into %
+                                (quickthing/dashed-line xy-pair-B-seq
+                                                        {:attribs {:stroke "red"}}))))]
+    (let [plot-xml (-> plot
+                       (thi.ng.geom.viz.core/svg-plot2d-cartesian)
+                       quickthing/svg-wrap
+                       quickthing/svg2xml)]
+      (spit svg-filename
+            plot-xml)
+      plot)))
+
+(def composite-plot
+  (agent nil))
+
+(rule composite-plot
+      [pr-eq-esinw
+       eccen-e
+       composite-filename]
+      two-line-plot)
+
+(assign composite-filename
+        "eccen-pre-eq-composite.svg")
+----
+
+image:plot/eccen-pre-eq-composite.svg[]
+
+The state dependency graph now has a common root of `time-steps` and a common end point of `composite plot`
+
+image:diag/eccen-pre-eq-composite.svg[]
+
+But note how the red eccentricity line didn't quite wrap the grey one.
+The time axis is on the right and we can see things start to misalign
+
+Maybe our first attempt would be to bump up the precision. So we increase the number of time steps
+
+
+----
+(assign time-steps
+        (range 0
+               800000
+               100))
+----
+
+What happens? `time-steps` is made stale and all dependencies are marked stale
+
+image:diag/eccen-pre-eq-composite-stale.svg[]
+
+And then everything,
+including the 3 plots,
+s recomputed of separate agent threads!
+
+The combined resulting combined plot is redrawn
+
+image:plot/eccen-pre-eq-composite-high-prec.svg[]
+
+The result looks.. exactly the same (but with a much larger file size)
+
+The actual reason is that we don't have enough frequency factors.
+Maybe we should bump the number of terms.
+(we can see the `:amplitude` are actually  of the same order and so likely still relevant)
+
+
+----
+(assign eccen-freqs
+        [{:amplitude 0.01102940
+          :freq-arcs 3.3138886
+          :phase-deg 165.16}
+         {:amplitude -0.00873296
+          :freq-arcs 13.650058
+          :phase-deg 279.68}
+         {:amplitude -0.00749255
+          :freq-arcs 10.511172
+          :phase-deg 114.51}
+         {:amplitude 0.00672394
+          :freq-arcs 13.013341
+          :phase-deg 291.57}
+         {:amplitude 0.00581229
+          :freq-arcs 9.874455
+          :phase-deg 126.41}
+         {:amplitude -0.00470066
+          :freq-arcs 0.636717
+          :phase-deg 348.10}])
+
+(assign pr-eq-freqs
+        [{:amplitude 0.0186080
+          :freq-arcs 54.646484
+          :phase-deg 32.01}
+         {:amplitude 0.0162752
+          :freq-arcs 57.785370
+          :phase-deg 197.18}
+         {:amplitude -0.0130066
+          :freq-arcs 68.296539
+          :phase-deg 311.69}
+         {:amplitude 0.0098883
+          :freq-arcs 67.659821
+          :phase-deg 323.59}])
+----
+
+Oh but we suddenly realize that we want to save that to another file! So that we can compare the before and after, so while that's computing you quickly type into the REPL
+
+
+----
+(assign composite-filename
+        "composite-high-precission.svg"))
+----
+
+image:plot/eccen-pre-eq-composite-more-terms.svg[]
+
+Depending on how punched in the file rename you will end up in one of several scenarios:
+
+- Rename while eccentricity values were being computed -> When the `composite-plot` agent works it seemlessly sees the new name
+- Rename while `composite-plot` agent is working -> the change main thread tries to propogate a `stale` and hangs waiting for the plotting to finish. Then the renaming occurs and the plotting reruns.
+
+In either case you are left with a consistent state
+
+
+== Extras
+Some extras for seemless integration with Clojure code
+
+=== Recall
+From the main thread we'd ideally want the `::stale` tags abstracted away.
+When we request to get a valuue,
+we don't want to have to handle situations where the value is not available.
+
+Generally the best and simplest course of action is to wait for the value to become available.
+
+----
+(defn recall
+  "WIP
+  Unclear how to hang and wait for a `::stale` to change.
+  Currently just spins the main thread...
+  which is not great
+  ..
+  You could `await` the main thread.
+  But you may end up waiting for unrelated work to finish.
+  Also not great"
+  [myagent]
+  (let [myagent-value (deref myagent)]
+    (if (= ::stale
+           myagent-value)
+      (do (await myagent)
+          (recur myagent))
+      myagent-value)))
+----
+
+If we call `recall` an agent we always get a non-stale value
+
+=== agentfn
+For a dependent state we typically want to:
+
+* create its agent
+* bind its dependencies
+* bind an update function
+* run the function and get a valid state immediately
+
+All in one step!
