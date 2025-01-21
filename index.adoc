@@ -465,6 +465,7 @@ Some extras for seemless integration with Clojure code
 * You can attach several rules to an agent.. which doesn't make much sense
 * You attach a rule to an agent.. but it doesn't auto fire to give you a valid value
 * When you `deref` a value it can give you back a `::stale` .. which your code then needs to handle? Seems gross
+* You can setup circular dependencies. This can make sense .. but needs more thought
 
 === agentfn
 For a dependent state we typically want to:

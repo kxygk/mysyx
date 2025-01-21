@@ -706,15 +706,15 @@ Maybe we should bump the number of terms.
 <p><span class="image"><img src="../web/img/plot/eccen-pre-eq-composite-more-terms.svg" alt="eccen pre eq composite more terms"></span></p>
 </div>
 <div class="paragraph">
-<p>Depending on how punched in the file rename you will end up in one of several scenarios:</p>
+<p>Depending on how fast you punched in the file rename you will end up in one of several scenarios:</p>
 </div>
 <div class="ulist">
 <ul>
 <li>
-<p>Rename while eccentricity values were being computed &#8594; When the <code>composite-plot</code> agent works it seemlessly sees the new name</p>
+<p>Rename while eccentricity values were being computed &#8594; When the <code>composite-plot</code> agent runs it&#8217;s update it seemlessly sees the new name</p>
 </li>
 <li>
-<p>Rename while <code>composite-plot</code> agent is working &#8594; the change main thread tries to propogate a <code>stale</code> and hangs waiting for the plotting to finish. Then the renaming occurs and the plotting reruns.</p>
+<p>Rename while <code>composite-plot</code> agent is working &#8594; the main thread tries to propogate a <code>stale</code> and hangs waiting for the plotting to finish. Then the stale propogates, the renaming occurs and the plotting reruns.</p>
 </li>
 </ul>
 </div>
@@ -740,6 +740,9 @@ Maybe we should bump the number of terms.
 </li>
 <li>
 <p>When you <code>deref</code> a value it can give you back a <code>::stale</code> .. which your code then needs to handle? Seems gross</p>
+</li>
+<li>
+<p>You can setup circular dependencies. This can make sense .. but needs more thought</p>
 </li>
 </ul>
 </div>
