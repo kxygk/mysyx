@@ -36,23 +36,25 @@
   [myagent
    tracked-agents-vec
    mission] ;; TODO: Check non-zero amount of tracked agents
-  (let [action (fn [call-key  ;; unique key 
-                    my-agent  ;; the agent     ;
-                    old-stat  ;; old-state
-                    new-stat ];; new-state
+  (let [action (fn [call-key       ;; unique key
+                    tracked-agent  ;; the agent     ;
+                    old-stat       ;; old-state
+                    new-stat ]     ;; new-state
+                 ;; the action is run on each tracked agent's thread
+                 ;; not on the agent-to-be-updated's thread
                  (let [dereffed (->> tracked-agents-vec
                                      (mapv deref))]
                    (if (->> dereffed
                             (some #(= %
                                       ::stale)))
-                     (if (not= old-stat
-                               ::stale)
-                       (send myagent
-                             (fn dummy-func3
-                               [_]
-                               ::stale))
-                       ;; else - already `::stale` so it's propogated!
-                       )
+                     ;; it's important to always send a stale.
+                     ;; Even if the value is already stale!
+                     ;; Because the agent may be mid-update
+                     ;; `deref` is no reliable
+                     (send myagent 
+                           (fn dummy-func3
+                             [_]
+                             ::stale))
                      ;; else - all inputs are fresh - so re-eval
                      (apply send
                             myagent
