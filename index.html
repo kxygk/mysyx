@@ -164,9 +164,23 @@ video{
 <div id="content">
 <div id="preamble">
 <div class="sectionbody">
-<div class="paragraph">
+<div class="quoteblock">
 <div class="title">BROKEN</div>
-<p><strong>NOTE:</strong> This implementation is broken. There are edge cases where it will not quite work. I still think the basic idea has merit but the work needs to be revisited and improved. For one the <code>await</code> function doesn&#8217;t quite work in the way this library anticipated and hence synchronization of the <code>::stale</code> state doesn&#8217;t work as it should. see: <a href="https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch" class="bare">https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch</a></p>
+<blockquote>
+<div class="paragraph">
+<p><strong>NOTE:</strong> This implementation is broken. There are edge cases where it will not quite work. I still think the basic idea has merit but the work needs to be revisited and improved. For one the <code>await</code> function doesn&#8217;t quite work in the way this library anticipated and hence synchronization of the <code>::stale</code> state doesn&#8217;t work as it should. see:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch" class="bare">https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch</a></p>
+</li>
+<li>
+<p><a href="https://old.reddit.com/r/Clojure/comments/1i6iu6q/mysyx_concurrent_state_management_using_clojure/" class="bare">https://old.reddit.com/r/Clojure/comments/1i6iu6q/mysyx_concurrent_state_management_using_clojure/</a></p>
+</li>
+</ul>
+</div>
+</blockquote>
 </div>
 <div class="paragraph">
 <p>A system for state managment though coordinated Clojure <code>agents</code></p>

@@ -8,7 +8,12 @@
 = Mysyx
 
 .BROKEN
-*NOTE:* This implementation is broken. There are edge cases where it will not quite work. I still think the basic idea has merit but the work needs to be revisited and improved. For one the `await` function doesn't quite work in the way this library anticipated and hence synchronization of the `::stale` state doesn't work as it should. see: https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch
+____
+*NOTE:* This implementation is broken. There are edge cases where it will not quite work. I still think the basic idea has merit but the work needs to be revisited and improved. For one the `await` function doesn't quite work in the way this library anticipated and hence synchronization of the `::stale` state doesn't work as it should. see:
+
+* https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch
+* https://old.reddit.com/r/Clojure/comments/1i6iu6q/mysyx_concurrent_state_management_using_clojure/
+____
 
 A system for state managment though coordinated Clojure `agents`
 
