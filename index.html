@@ -165,6 +165,10 @@ video{
 <div id="preamble">
 <div class="sectionbody">
 <div class="paragraph">
+<div class="title">BROKEN</div>
+<p><strong>NOTE:</strong> This implementation is broken. There are edge cases where it will not quite work. I still think the basic idea has merit but the work needs to be revisited and improved. For one the <code>await</code> function doesn&#8217;t quite work in the way this library anticipated and hence synchronization of the <code>::stale</code> state doesn&#8217;t work as it should. see: <a href="https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch" class="bare">https://ask.clojure.org/index.php/14357/why-does-await-fire-off-an-agent-s-watch</a></p>
+</div>
+<div class="paragraph">
 <p>A system for state managment though coordinated Clojure <code>agents</code></p>
 </div>
 <div class="paragraph">
